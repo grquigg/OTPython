@@ -5,7 +5,6 @@ from scipy.special import softmax
 from scipy.optimize import minimize
 def load_data(file, delimiter='\t'):
     data = pd.read_csv(file, delimiter=delimiter, header=None)
-
     full_names = data.iloc[0][3:]
     abbr_names = data.iloc[1][3:]
     candidate_rows = data[data[1].notnull()]
@@ -31,7 +30,7 @@ def compute_probabilities(constraint_weights, data):
 def calculate_data_likelihood(constraint_weights, data):
     data = np.array(data).astype(float)
     freqs = data[:,0:1]
-    h = -np.dot(constraint_weights, data[:,1:3])
+    h = -np.dot(data[:,1:], constraint_weights)
     h_soft = softmax(h)
     log_candidate_probs = np.log(h_soft)
     log_probs = np.sum(np.dot(log_candidate_probs, freqs))
@@ -92,9 +91,9 @@ def optimize(input_file, bias_file=None, constraint_weights=None, learning_rate=
     full_data = input[3]
     weights = np.ones((1, len(long_names)))
     #optimization code
-    result = minimize(log_likelihood, weights, args=(data,bias_params,), options={'xatol': 1e-8, 'disp': True})
-    new_weights = np.reshape(result.x, (1,2))
+    result = minimize(log_likelihood, weights, args=(data,bias_params,))
+    new_weights = np.reshape(result.x, (1,len(long_names)))
     probs = predict(result.x, data, bias_params)
     print(probs)
 
-optimize("sample_data_file.txt", bias_file="sample_constraint_file.txt")
+optimize("data_large.txt", bias_file="sample_constraint_file_complex.txt")
