@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
 import copy
+import argparse
 from scipy.special import softmax
 from scipy.optimize import minimize
+
 def load_data(file, delimiter='\t'):
     data = pd.read_csv(file, delimiter=delimiter, header=None)
     full_names = data.iloc[0][3:]
@@ -36,6 +38,8 @@ def calculate_data_likelihood(constraint_weights, data):
     log_probs = np.sum(np.dot(log_candidate_probs, freqs))
     return log_probs, h_soft
 
+def calculate_tableau_likelihood(constraint_weights, data):
+    pass
 def calculate_bias(mus, sigmas, constraint_weights):
     top = (constraint_weights - mus)**2
     bottom = 2 * sigmas**2
@@ -51,49 +55,78 @@ def log_likelihood(constraint_weights, data, bias_params):
         total_probs = np.concatenate([total_probs, probs])
     if(bias_params != None):
         l += - calculate_bias(bias_params[0], bias_params[1], constraint_weights)
-    print(l)
     return -l
 
-def predict(constraint_weights, data, bias_params):
+def predict_probabilities(constraint_weights, data):
     total_probs = []
     for key, value in data.items():
         loss, probs = calculate_data_likelihood(constraint_weights, value)
         total_probs = np.concatenate([total_probs, probs])
     return total_probs
 
-def convert(weights, data):
-    weights = weights.flatten()
-    dat = []
-    for key, value in data.items():
-        dat += value
-    pass
-
 def load_bias_file(bias_file, sep="\t"):
     inBias = pd.read_csv(bias_file, delimiter=sep, header=None)
     inBias = inBias.to_numpy()
     print(inBias)
     mus = inBias[:,1]
-    print(mus)
+    print(mus.shape)
     sigmas = inBias[:,2]
-    print(sigmas)
+    print(sigmas.shape)
     return (mus, sigmas)
 
-def optimize(input_file, bias_file=None, constraint_weights=None, learning_rate=0.1, iterations=1):
-
-    input = load_data(input_file)
+def process_bias_arguments(bias_file, mu_scalar, mu_vector, sigma_scalar, sigma_vector, num_constraints):
+    bias_params = None
     if(bias_file != None):
+        if(not(mu_scalar == None and mu_vector == None and sigma_scalar == None and sigma_vector == None)):
+            raise ValueError("Both bias file and scalar constraints were provided. Ignoring the scalars and using parameters from file")
         bias_params = load_bias_file(bias_file)
+    elif((mu_vector != None or mu_scalar != None) and (sigma_scalar != None or sigma_vector != None)):
+        bias_params = [np.ndarray((num_constraints,)), np.ndarray((num_constraints,))]
+        if(mu_vector != None):
+            if(mu_scalar != None):
+                raise ValueError("Ignoring scalar value and using vector parameters")
+        
+            if(len(mu_vector) != num_constraints):
+                raise ValueError("This does not work")
+            bias_params[0] = np.array(mu_vector)
+        else:
+            mu = np.full((num_constraints,), mu_scalar)
+            bias_params[0] = mu
+        
+        if(sigma_vector != None):
+            if(sigma_scalar != None):
+                raise ValueError("Ignoring scalar avlue and using vector parameters")
+            if(len(sigma_vector) != num_constraints):
+                raise ValueError("Bad value")
+            bias_params[1] = np.array(sigma_vector)
+        else:
+            sigma = np.full((num_constraints,), sigma_scalar)
+            bias_params[1] = sigma
+    elif(mu_vector != None or mu_scalar != None or sigma_scalar != None or sigma_vector != None):
+        raise ValueError("Must specify values for both sigma and mu")
     else:
-        bias_params = None
+        print("Proceed with no mu or sigma")
+    return bias_params
+        
+def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
+    input = load_data(input_file)
+    #variables
     long_names = input[0]
+    num_constraints = len(long_names)
     abbr_names = input[1]
     data = input[2]
     full_data = input[3]
-    weights = np.ones((1, len(long_names)))
+    #bias params
+    bias_params = process_bias_arguments(bias_file, mu_scalar, mu_vector, sigma_scalar, sigma_vector, num_constraints)
+    print(bias_params)
+    if(constraint_weights != None):
+        weights = constraint_weights
+    else:
+        weights = np.ones((1, num_constraints))
     #optimization code
     result = minimize(log_likelihood, weights, args=(data,bias_params,))
     new_weights = np.reshape(result.x, (1,len(long_names)))
-    probs = predict(result.x, data, bias_params)
+    probs = predict_probabilities(result.x, data)
     print(probs)
 
-optimize("data_large.txt", bias_file="sample_constraint_file_complex.txt")
+optimize("data_large.txt", mu_scalar=0, sigma_scalar=10)
