@@ -37,9 +37,7 @@ def calculate_data_likelihood(constraint_weights, data):
     log_candidate_probs = np.log(h_soft)
     log_probs = np.sum(np.dot(log_candidate_probs, freqs))
     return log_probs, h_soft
-
-def calculate_tableau_likelihood(constraint_weights, data):
-    pass
+    
 def calculate_bias(mus, sigmas, constraint_weights):
     top = (constraint_weights - mus)**2
     bottom = 2 * sigmas**2
@@ -129,4 +127,9 @@ def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None
     probs = predict_probabilities(result.x, data)
     print(probs)
 
-optimize("data_large.txt", mu_scalar=0, sigma_scalar=10)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--constraint_file", type=str, help="Input data file for contraints")
+    parser.add_argument("-f", "--bias_file")
+    args = parser.parse_args()
+    optimize(args.constraint_file, mu_scalar=0, sigma_scalar=10, bias_file=args.bias_file)
