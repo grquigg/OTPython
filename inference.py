@@ -39,9 +39,7 @@ likelihoods = sorted(likelihoods, reverse=True)
 counts = likelihoods.copy()
 likelihoods = likelihoods / np.sum(likelihoods)
 
-print(convert_vector_to_num([0,0,0,1], 4))
-print(convert_vector_to_num([2,2,2,2], 4))
-constraints =  generate_constraint_dict(len(consonant_headers))
+constraints =  generate_constraint_dict(len(consonant_headers)-1)
 possible_constraints = [key for key in constraints.keys()]
 
 #convert data features
@@ -53,4 +51,33 @@ for i in range(consonants.shape[0]):
             consonants[i][j] = 1
         elif(consonants[i][j] == "0"):
             consonants[i][j] = 0
-print(consonants)
+violation_table = np.zeros((len(consonants), len(possible_constraints)), dtype=int)
+#map consonants
+consonants_dict = {}
+for consonant in consonants:
+    consonants_dict[consonant[0]] = consonant[1:]
+
+#evaluate constraint violations
+for j in range(len(possible_constraints)):
+    value = constraints[possible_constraints[j]]
+    #this is where things get hairy with the math
+    for i in range(len(consonants)):
+        val = consonants[i][1:]
+        #multiply the vector representations of constraint and value
+        #in the case of this specific problem, candidates that violate a constraint will be marked by 
+        #either 1 or 4 (1^2 and 2^2, respectively)
+        result = np.multiply(value, val)
+        #if 1 or 4 in result, then the constraint is violated
+        #however, it needs to violate all parts of the constraint
+        if(1 in result or 4 in result):
+            violation = True
+            for i in range(len(value)):
+                if(value[i] != val[i] and (value == 1 or value == 2)):
+                    violation = False
+            if(violation):
+                violation_table[i][j] += 1
+print("DONE")
+sample = 5
+print(possible_constraints[sample])
+print(constraints[possible_constraints[sample]])
+print(violation_table[:,sample])
