@@ -2,7 +2,24 @@ import pandas as pd
 import numpy as np
 import math
 import random
+import copy
+def generate_salad(cdf, pdf, grammar, length=1000):
+    salad = []
+    for i in range(length):
+        index = random.random()
+        entry = recursiveRandomSample(index, cdf, pdf)
+        salad.append(entry)
+    return salad
 
+def recursiveRandomSample(value, cdf, pdf):
+    middle = math.floor(len(cdf) / 2)
+    if(len(cdf) == 1):
+        return pdf[0]
+    if(value < cdf[middle]):
+        return recursiveRandomSample(value, cdf[0:middle], pdf[0:middle])
+    elif(value >= cdf[middle]):
+        return recursiveRandomSample(value, cdf[middle:], pdf[middle:])
+    
 def generate_combinations(constraints, i, j, k, num_features):
     for p in range(3):
         for q in range(3):
@@ -26,13 +43,7 @@ def generate_constraint_dict(num_features, max_features=3): #these are only goin
 #don't include "repeat" constraints
 def generate_full_constraint_space(constraints, possible_constraints):
     constraint_space = {}
-    for i in range(1,len(possible_constraints)):
-        for j in range(1,len(possible_constraints)):
-            for k in range(1,len(possible_constraints)):
-                value = (constraints[possible_constraints[i]] + 
-                         constraints[possible_constraints[j]] +
-                         constraints[possible_constraints[k]])
-                constraint_space[(i,j,k)] = value
+    #TO-DO: make this more efficient
 
 def convert_vector_to_num(vector, num_features):
     total = 0
@@ -115,8 +126,51 @@ for j in range(2, 3):
 print("DONE")
 total_violations = np.sum(violation_table, axis=0)
 print(total_violations)
-#now we get the full constraint space
 
 #TO-DO: Figure out whether there's a way to simplify constraint space a significant amount
 #determine which constraints actually might have violations based on our data
 #TO-DO: produce output file called blick
+
+def generate_possible_combinations(consonants, combos_dict, max_length=3):
+    full_combos = copy.deepcopy(combos_dict)
+    c_space = consonants[:,0].tolist()
+    print(c_space)
+    #treat the list of possible combinations like a stack
+    current_combos = len(c_space)-1
+    index = len(c_space)-1
+    #ensure that everything is as it should be
+    for cons in c_space:
+        if(cons not in full_combos):
+            full_combos[cons] = consonants_dict[cons]
+    while(index >= 0):
+        #look through the entirety of the stack to see if there's any combinations we can have
+        current_val = c_space[index]
+        for i in range(len(c_space)-1, 0, -1):
+            string = current_val + " " + c_space[i]
+            if(len(string.split(' ')) > max_length):
+                continue
+            vec = np.concatenate((full_combos[current_val], full_combos[c_space[i]]))
+            if(string not in c_space):
+                c_space.append(string)
+            if(string not in full_combos):
+                full_combos[string] = vec
+        index -= 1
+
+
+    pass
+possible_combos = generate_possible_combinations(consonants, featurized, max_length=3)
+combination_pdf = []
+combination_cdf = []
+total = 0
+#randomly generate constraints
+# print(len(consonants[0]))
+# print(consonants_dict)
+# num_features = 15
+# num_candidate_features = 100
+# for key in possible_combos.keys():
+#     combination_pdf.append(key)
+#     combination_cdf.append(total)
+#     total += (1/len(possible_combos))
+# G = []
+# salad = generate_salad(combination_cdf, combination_pdf, G)
+# print(salad[0])
