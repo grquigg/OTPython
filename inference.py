@@ -3,23 +3,19 @@ import numpy as np
 import math
 import random
 import copy
-def generate_salad(cdf, pdf, grammar, length=1000):
+from predict import fit
+random.seed(42)
+def generate_salad(consonants, grammar, length=1000, max_length=3):
     salad = []
     for i in range(length):
-        index = random.random()
-        entry = recursiveRandomSample(index, cdf, pdf)
-        salad.append(entry)
+        length = random.randint(1, max_length)
+        str = ""
+        for j in range(length):
+            index = random.randint(0,len(consonants)-1)
+            str += consonants[index] + " "
+        salad.append(str[:-1])
     return salad
 
-def recursiveRandomSample(value, cdf, pdf):
-    middle = math.floor(len(cdf) / 2)
-    if(len(cdf) == 1):
-        return pdf[0]
-    if(value < cdf[middle]):
-        return recursiveRandomSample(value, cdf[0:middle], pdf[0:middle])
-    elif(value >= cdf[middle]):
-        return recursiveRandomSample(value, cdf[middle:], pdf[middle:])
-    
 def generate_combinations(constraints, i, j, k, num_features):
     for p in range(3):
         for q in range(3):
@@ -40,10 +36,6 @@ def generate_constraint_dict(num_features, max_features=3): #these are only goin
             for k in range(num_features):
                 generate_combinations(constraints, i, j, k, num_features)
     return constraints
-#don't include "repeat" constraints
-def generate_full_constraint_space(constraints, possible_constraints):
-    constraint_space = {}
-    #TO-DO: make this more efficient
 
 def convert_vector_to_num(vector, num_features):
     total = 0
@@ -56,10 +48,10 @@ def convert_vector_to_num(vector, num_features):
 def featurize_data(data, consonants_dict):
     featurized_data = {}
     for d in data:
-        vec = d[0].split(" ")
-        featurized_data[d[0]] = []
+        vec = d.split(" ")
+        featurized_data[d] = []
         for i in range(len(vec)):
-            featurized_data[d[0]] = np.concatenate((featurized_data[d[0]], consonants_dict[vec[i]]))
+            featurized_data[d] = np.concatenate((featurized_data[d], consonants_dict[vec[i]]))
     return featurized_data
 
 consonants_df = pd.read_csv("EnglishFeatures.txt", delimiter='\t') #this is the **feature** dataset
@@ -85,7 +77,6 @@ consonants_dict = {}
 for consonant in consonants:
     consonants_dict[consonant[0]] = consonant[1:]
 NUM_FEATURES = len(consonant_headers)-1
-featurized = featurize_data(data, consonants_dict)
 constraints =  generate_constraint_dict(NUM_FEATURES)
 possible_constraints = [key for key in constraints.keys()]
 #this is formally a stack
@@ -93,84 +84,137 @@ possible_constraints = [key for key in constraints.keys()]
 #this takes way too long
 # full_constraints = generate_full_constraint_space(constraints, possible_constraints)
 #convert data features
-violation_table = np.zeros((len(data), len(possible_constraints)), dtype=int)
 
 
 #evaluate constraint violations
-for j in range(2, 3):
-    value = constraints[possible_constraints[j]]
-    #this is where things get hairy with the math
-    for i in range(len(data)):
-        val = featurized[data[i][0]]
-        print(val)
-        for k in range(0, len(val), NUM_FEATURES):
-            #multiply the vector representations of constraint and value
-            #in the case of this specific problem, candidates that violate a constraint will be marked by 
-            #either 1 or 4 (1^2 and 2^2, respectively)
-            print(val[k:k+NUM_FEATURES])
-            print(value)
-            result = np.multiply(value, val[k:k+NUM_FEATURES])
-            print("Result")
-            print(result)
-            #if 1 or 4 in result, then the constraint is violated
-            #however, it needs to violate all parts of the constraint
-            if(1 in result or 4 in result):
-                violation = True
-                for n in range(len(value)):
-                    #if the two values are not the same and the values 
-                    if(value[n] != val[n] and (value[n] == 1 or value[n] == 2)):
-                        violation = False
-                if(violation):
-                    print("violation")
-                    violation_table[i][j] += 1
-print("DONE")
-total_violations = np.sum(violation_table, axis=0)
-print(total_violations)
+# for j in range(len(possible_constraints)):
+#     value = constraints[possible_constraints[j]]
+#     #this is where things get hairy with the math
+#     for i in range(len(consonants)):
+#         val = featurized[data[i][0]]
+#         for k in range(len(consonants)):
+#             val = consonants[k][1:]
+#             print(val)
+#             #multiply the vector representations of constraint and value
+#             #in the case of this specific problem, candidates that violate a constraint will be marked by 
+#             #either 1 or 4 (1^2 and 2^2, respectively)
+#             result = np.multiply(value, val)
+#             #if 1 or 4 in result, then the constraint is violated
+#             #however, it needs to violate all parts of the constraint
+#             if(1 in result or 4 in result):
+#                 violation = True
+#                 for n in range(len(value)):
+#                     #if the two values are not the same and the values 
+#                     if(value[n] != val[n] and (value[n] == 1 or value[n] == 2)):
+#                         violation = False
+#                 if(violation):
+#                     violation_table[i][j] += 1
+# print("DONE")
+# total_violations = np.sum(violation_table, axis=0)
+# print(total_violations)
 
 #TO-DO: Figure out whether there's a way to simplify constraint space a significant amount
 #determine which constraints actually might have violations based on our data
 #TO-DO: produce output file called blick
 
-def generate_possible_combinations(consonants, combos_dict, max_length=3):
-    full_combos = copy.deepcopy(combos_dict)
-    c_space = consonants[:,0].tolist()
-    print(c_space)
-    #treat the list of possible combinations like a stack
-    current_combos = len(c_space)-1
-    index = len(c_space)-1
-    #ensure that everything is as it should be
-    for cons in c_space:
-        if(cons not in full_combos):
-            full_combos[cons] = consonants_dict[cons]
-    while(index >= 0):
-        #look through the entirety of the stack to see if there's any combinations we can have
-        current_val = c_space[index]
-        for i in range(len(c_space)-1, 0, -1):
-            string = current_val + " " + c_space[i]
-            if(len(string.split(' ')) > max_length):
+#recursive function for generating full list of possible combinations
+#runs in approximately O(n^3) time, where n is the number of features
+#obviously any speed up possible is going to result in improved performance
+
+c_space = consonants[:,0].tolist()
+
+def generate_candidate_constraints(possible_constraints, constraints, num=1000, max_length=3):
+    constraint_list = {}
+    while(len(constraint_list.keys()) < num): #this is sampling WITHOUT replacement
+        length = random.randint(1, max_length)
+        constraint = []
+        vec = []
+        for i in range(length):
+            sample = random.randint(0, len(possible_constraints)-1)
+            constraint.append(possible_constraints[sample])
+            vec = np.concatenate((vec, constraints[possible_constraints[sample]]))
+        constraint = tuple(constraint)
+        if(constraint not in constraint_list):
+            constraint_list[constraint] = vec
+    return constraint_list
+
+def generate_constraint_violations(cans, candidates, features, salad):
+    violations = np.zeros((len(salad), len(cans)))
+    for j in range(len(cans)):
+        constraint = candidates[cans[j]]
+        #this is where things get hairy with the math
+        for i in range(len(salad)):
+            val = features[salad[i]]
+            if(len(constraint) > len(val)):
+                violations[i][j] = 0
                 continue
-            vec = np.concatenate((full_combos[current_val], full_combos[c_space[i]]))
-            if(string not in c_space):
-                c_space.append(string)
-            if(string not in full_combos):
-                full_combos[string] = vec
-        index -= 1
+            if(len(constraint) == len(val)):
+                result = np.multiply(constraint, val)
+                if(1 in result or 4 in result):
+                    violation = True
+                    for n in range(len(constraint)):
+                        #if the two values are not the same and the values 
+                        if(constraint[n] != val[n] and (constraint[n] == 1 or constraint[n] == 2)):
+                            violation = False
+                    if(violation):
+                        violations[i][j] += 1
+            else:
+                for k in range(0, len(constraint), NUM_FEATURES):
+                    #multiply the vector representations of constraint and value
+                    #in the case of this specific problem, candidates that violate a constraint will be marked by 
+                    #either 1 or 4 (1^2 and 2^2, respectively)
+                    d = val[k:k+len(constraint)]
+                    result = np.multiply(constraint, d)
+                    #if 1 or 4 in result, then the constraint is violated
+                    #however, it needs to violate all parts of the constraint
+                    if(1 in result or 4 in result):
+                        violation = True
+                        for n in range(len(constraint)):
+                            #if the two values are not the same and the values 
+                            if(constraint[n] != d[n] and (constraint[n] == 1 or constraint[n] == 2)):
+                                violation = False
+                        if(violation):
+                            violations[i][j] += 1
+    return violations
 
+def find_constraint(a, salad, candidates, consonants):
+    features = featurize_data(salad, consonants_dict)
 
-    pass
-possible_combos = generate_possible_combinations(consonants, featurized, max_length=3)
-combination_pdf = []
-combination_cdf = []
-total = 0
-#randomly generate constraints
-# print(len(consonants[0]))
-# print(consonants_dict)
-# num_features = 15
-# num_candidate_features = 100
-# for key in possible_combos.keys():
-#     combination_pdf.append(key)
-#     combination_cdf.append(total)
-#     total += (1/len(possible_combos))
-# G = []
-# salad = generate_salad(combination_cdf, combination_pdf, G)
-# print(salad[0])
+    cans = [key for key in candidates.keys()]
+    violations = generate_constraint_violations(cans, candidates, features, salad)
+    print(violations.shape)
+    freqs = np.ones((1000,1))
+    input = np.concatenate((violations, freqs), axis=1)
+    feed = {"Input1": input}
+    fit(feed, 1000)
+
+# s = ["R", "R", "R", "N", "R R", "R R R", "R R N"]
+# cans = [(162,), (648,), (162,162,)]
+# features = featurize_data(s, consonants_dict)
+# candidates = {
+#     (162,): constraints[162],
+#     (648,): constraints[648],
+#     (162,162,): np.concatenate((constraints[162], constraints[162]))
+# }
+# print(candidates[(162,)])
+# violations = generate_constraint_violations(cans, candidates, features, s)
+# print(violations)
+A = [0.001, 0.01, 0.1, 0.2, 0.3] #accuracy schedule
+#algorithm as outlined in Hayes and Wilson 2008
+#start with an empty grammar G
+G = []
+salad = generate_salad(c_space, G)
+print(salad)
+#for every accuracy level a in A
+for a in A[:1]:
+    candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
+    #select the most general constraint with accuracy less than a and add it to the grammar
+    constraint = find_constraint(a, salad, candidate_constraints, consonants_dict)
+    #fit model with new constraint
+    while(constraint != None):
+        G.append(constraint)
+        salad = generate_salad(c_space, G)
+        candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
+        #select the most general constraint with accuracy less than a and add it to the grammar
+        constraint = find_constraint(a, salad, candidate_constraints)
+    

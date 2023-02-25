@@ -4,7 +4,7 @@ import copy
 import argparse
 from scipy.special import softmax
 from scipy.optimize import minimize
-
+np.set_printoptions(suppress=True)
 def load_data(file, delimiter='\t'):
     data = pd.read_csv(file, delimiter=delimiter, header=None)
     full_names = data.iloc[0][3:]
@@ -105,7 +105,18 @@ def process_bias_arguments(bias_file, mu_scalar, mu_vector, sigma_scalar, sigma_
     else:
         print("Proceed with no mu or sigma")
     return bias_params
-        
+
+def fit(input_data, num_constraints, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
+    bias_params = process_bias_arguments(None, mu_scalar, mu_vector, sigma_scalar, sigma_vector, num_constraints)
+    if(constraint_weights != None):
+        weights = constraint_weights
+    else:
+        weights = np.ones((1, num_constraints))
+    result = minimize(log_likelihood, weights, args=(input_data,bias_params,))
+    new_weights = np.reshape(result.x, (1,num_constraints))
+    probs = predict_probabilities(result.x, input_data)
+    print(probs)
+
 def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
     input = load_data(input_file)
     #variables
@@ -113,6 +124,7 @@ def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None
     num_constraints = len(long_names)
     abbr_names = input[1]
     data = input[2]
+    print(data)
     full_data = input[3]
     #bias params
     bias_params = process_bias_arguments(bias_file, mu_scalar, mu_vector, sigma_scalar, sigma_vector, num_constraints)
@@ -124,6 +136,7 @@ def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None
     #optimization code
     result = minimize(log_likelihood, weights, args=(data,bias_params,))
     new_weights = np.reshape(result.x, (1,len(long_names)))
+    print(new_weights)
     probs = predict_probabilities(result.x, data)
     print(probs)
 
