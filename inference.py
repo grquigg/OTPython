@@ -3,7 +3,8 @@ import numpy as np
 import math
 import random
 import copy
-from predict import fit
+from predict import fit, predict_probabilities
+
 random.seed(42)
 def generate_salad(consonants, grammar, length=1000, max_length=3):
     salad = []
@@ -177,17 +178,39 @@ def generate_constraint_violations(cans, candidates, features, salad):
                             violations[i][j] += 1
     return violations
 
-def find_constraint(a, salad, candidates, consonants):
+def find_constraint(a, salad, candidates, consonants, freqs):
     features = featurize_data(salad, consonants_dict)
 
     cans = [key for key in candidates.keys()]
     violations = generate_constraint_violations(cans, candidates, features, salad)
     print(violations.shape)
-    freqs = np.ones((1000,1))
-    input = np.concatenate((violations, freqs), axis=1)
+    input = np.concatenate((freqs, violations), axis=1)
     feed = {"Input1": input}
-    fit(feed, 1000)
+    weights = np.ones((1000,))
+    probs = predict_probabilities(weights, feed)
+    expected_totals = np.dot(probs, violations)
+    featurized_data = featurize_data(data[:,0], consonants_dict)
+    observed_violations = generate_constraint_violations(cans, candidates, featurized_data, data[:,0])
+    observed_totals = np.dot(data[:,1]/sum(data[:,1])*1000, observed_violations)
+    #determine the best constraints given the set of conditions
+    best_accuracy = a
+    max_diff = 0
+    accuracy = observed_totals - expected_totals
+    print("Results")
+    print(np.min(accuracy))
+    constraint = np.argmin(accuracy)
+    print(observed_violations[:,constraint])
+    return constraint, observed_violations[:,constraint]
 
+def get_unique(salad):
+    unique_salad = []
+    count = {}
+    for word in salad:
+        if(word not in count):
+            count[word] = 0
+            unique_salad.append(word)
+        count[word] += 1
+    return unique_salad, count
 # s = ["R", "R", "R", "N", "R R", "R R R", "R R N"]
 # cans = [(162,), (648,), (162,162,)]
 # features = featurize_data(s, consonants_dict)
@@ -203,18 +226,32 @@ A = [0.001, 0.01, 0.1, 0.2, 0.3] #accuracy schedule
 #algorithm as outlined in Hayes and Wilson 2008
 #start with an empty grammar G
 G = []
+tableau = np.array(data[:,1]).reshape((len(data), 1))
+input = {"Input1": tableau}
 salad = generate_salad(c_space, G)
-print(salad)
+# print(salad)
+unique_salad, count = get_unique(salad)
+print(count)
+freqs = [value for value in count.values()]
+freqs = np.array(freqs).reshape((len(freqs), 1))
 #for every accuracy level a in A
+
 for a in A[:1]:
     candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
     #select the most general constraint with accuracy less than a and add it to the grammar
-    constraint = find_constraint(a, salad, candidate_constraints, consonants_dict)
+    constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+    violations = np.reshape(violations, (input["Input1"].shape[0], 1))
+    input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
+    print(input["Input1"].shape)
+    assert input["Input1"].shape[1] == 2
+    fit(input, num_constraints=1, mu_scalar=0, sigma_scalar=10)
     #fit model with new constraint
     while(constraint != None):
         G.append(constraint)
         salad = generate_salad(c_space, G)
         candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
+        break
         #select the most general constraint with accuracy less than a and add it to the grammar
         constraint = find_constraint(a, salad, candidate_constraints)
+
     

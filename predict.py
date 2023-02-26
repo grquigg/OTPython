@@ -32,6 +32,8 @@ def compute_probabilities(constraint_weights, data):
 def calculate_data_likelihood(constraint_weights, data):
     data = np.array(data).astype(float)
     freqs = data[:,0:1]
+    print(constraint_weights.shape)
+    print(data[:,1:].shape)
     h = -np.dot(data[:,1:], constraint_weights)
     h_soft = softmax(h)
     log_candidate_probs = np.log(h_soft)
@@ -106,16 +108,16 @@ def process_bias_arguments(bias_file, mu_scalar, mu_vector, sigma_scalar, sigma_
         print("Proceed with no mu or sigma")
     return bias_params
 
-def fit(input_data, num_constraints, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
+def fit(input_data, num_constraints=1000, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
     bias_params = process_bias_arguments(None, mu_scalar, mu_vector, sigma_scalar, sigma_vector, num_constraints)
     if(constraint_weights != None):
         weights = constraint_weights
     else:
         weights = np.ones((1, num_constraints))
     result = minimize(log_likelihood, weights, args=(input_data,bias_params,))
+    print(result)
     new_weights = np.reshape(result.x, (1,num_constraints))
     probs = predict_probabilities(result.x, input_data)
-    print(probs)
 
 def optimize(input_file, bias_file=None, constraint_weights=None, mu_scalar=None, mu_vector=None, sigma_scalar=None, sigma_vector=None):
     input = load_data(input_file)
