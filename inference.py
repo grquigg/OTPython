@@ -6,15 +6,54 @@ import copy
 from predict import fit, predict_probabilities
 
 random.seed(42)
-def generate_salad(consonants, grammar, length=1000, max_length=3):
+
+def generate_cdf(probs):
+    cdf = []
+    val = 0
+    for i in range(len(probs)):
+        val+= probs[i]
+        cdf.append(val)
+    return cdf
+
+def recursiveRandomSample(value, cdf, pdf):
+    middle = math.floor(len(cdf) / 2)
+    if(len(cdf) == 1):
+        return pdf[0]
+    if(value < cdf[middle]):
+        return recursiveRandomSample(value, cdf[0:middle], pdf[0:middle])
+    elif(value >= cdf[middle]):
+        return recursiveRandomSample(value, cdf[middle:], pdf[middle:])
+    
+def generate_salad(consonants, grammar, probs, length=1000, max_length=3):
     salad = []
-    for i in range(length):
-        length = random.randint(1, max_length)
-        str = ""
-        for j in range(length):
-            index = random.randint(0,len(consonants)-1)
-            str += consonants[index] + " "
-        salad.append(str[:-1])
+    if(len(grammar) == 0):
+        for i in range(length):
+            l = random.randint(1, max_length)
+            str = ""
+            for j in range(l):
+                index = random.randint(0,len(consonants)-1)
+                str += consonants[index] + " "
+            salad.append(str[:-1])
+    else:
+        print(grammar)
+        print(probs)
+        nums = [i for i in range(len(probs))]
+        cdf = generate_cdf(probs)
+        for i in range(length):
+            l = random.randint(1, max_length)
+            str = ""
+            for j in range(l):
+                index = random.random()
+                id = recursiveRandomSample(index, cdf, nums)
+                elem = consonants[id]
+                le = len(str.split(' ')) + len(elem.split(' '))
+                while(le > max_length):
+                    index = random.random()
+                    id = recursiveRandomSample(index, cdf, nums)
+                    elem = consonants[id]
+                    le = len(str.split(' ')) + len(elem.split(' '))
+                str += elem + " "
+            salad.append(str[:-1])
     return salad
 
 def generate_combinations(constraints, i, j, k, num_features):
@@ -49,6 +88,7 @@ def convert_vector_to_num(vector, num_features):
 def featurize_data(data, consonants_dict):
     featurized_data = {}
     for d in data:
+        print(d)
         vec = d.split(" ")
         featurized_data[d] = []
         for i in range(len(vec)):
@@ -80,39 +120,6 @@ for consonant in consonants:
 NUM_FEATURES = len(consonant_headers)-1
 constraints =  generate_constraint_dict(NUM_FEATURES)
 possible_constraints = [key for key in constraints.keys()]
-#this is formally a stack
-
-#this takes way too long
-# full_constraints = generate_full_constraint_space(constraints, possible_constraints)
-#convert data features
-
-
-#evaluate constraint violations
-# for j in range(len(possible_constraints)):
-#     value = constraints[possible_constraints[j]]
-#     #this is where things get hairy with the math
-#     for i in range(len(consonants)):
-#         val = featurized[data[i][0]]
-#         for k in range(len(consonants)):
-#             val = consonants[k][1:]
-#             print(val)
-#             #multiply the vector representations of constraint and value
-#             #in the case of this specific problem, candidates that violate a constraint will be marked by 
-#             #either 1 or 4 (1^2 and 2^2, respectively)
-#             result = np.multiply(value, val)
-#             #if 1 or 4 in result, then the constraint is violated
-#             #however, it needs to violate all parts of the constraint
-#             if(1 in result or 4 in result):
-#                 violation = True
-#                 for n in range(len(value)):
-#                     #if the two values are not the same and the values 
-#                     if(value[n] != val[n] and (value[n] == 1 or value[n] == 2)):
-#                         violation = False
-#                 if(violation):
-#                     violation_table[i][j] += 1
-# print("DONE")
-# total_violations = np.sum(violation_table, axis=0)
-# print(total_violations)
 
 #TO-DO: Figure out whether there's a way to simplify constraint space a significant amount
 #determine which constraints actually might have violations based on our data
@@ -124,7 +131,7 @@ possible_constraints = [key for key in constraints.keys()]
 
 c_space = consonants[:,0].tolist()
 
-def generate_candidate_constraints(possible_constraints, constraints, num=1000, max_length=3):
+def generate_candidate_constraints(possible_constraints, constraints, grammar, num=1000, max_length=3):
     constraint_list = {}
     while(len(constraint_list.keys()) < num): #this is sampling WITHOUT replacement
         length = random.randint(1, max_length)
@@ -135,7 +142,7 @@ def generate_candidate_constraints(possible_constraints, constraints, num=1000, 
             constraint.append(possible_constraints[sample])
             vec = np.concatenate((vec, constraints[possible_constraints[sample]]))
         constraint = tuple(constraint)
-        if(constraint not in constraint_list):
+        if(constraint not in constraint_list and constraint not in grammar):
             constraint_list[constraint] = vec
     return constraint_list
 
@@ -199,6 +206,7 @@ def find_constraint(a, salad, candidates, consonants, freqs):
     print("Results")
     print(np.min(accuracy))
     constraint = np.argmin(accuracy)
+    print(constraint)
     print(observed_violations[:,constraint])
     return constraint, observed_violations[:,constraint]
 
@@ -211,47 +219,43 @@ def get_unique(salad):
             unique_salad.append(word)
         count[word] += 1
     return unique_salad, count
-# s = ["R", "R", "R", "N", "R R", "R R R", "R R N"]
-# cans = [(162,), (648,), (162,162,)]
-# features = featurize_data(s, consonants_dict)
-# candidates = {
-#     (162,): constraints[162],
-#     (648,): constraints[648],
-#     (162,162,): np.concatenate((constraints[162], constraints[162]))
-# }
-# print(candidates[(162,)])
-# violations = generate_constraint_violations(cans, candidates, features, s)
-# print(violations)
+
 A = [0.001, 0.01, 0.1, 0.2, 0.3] #accuracy schedule
 #algorithm as outlined in Hayes and Wilson 2008
 #start with an empty grammar G
-G = []
 tableau = np.array(data[:,1]).reshape((len(data), 1))
 input = {"Input1": tableau}
-salad = generate_salad(c_space, G)
+probs = np.full_like((len(data), 1), 1/len(data))
+G = []
+salad = generate_salad(c_space, G, probs)
 # print(salad)
 unique_salad, count = get_unique(salad)
-print(count)
 freqs = [value for value in count.values()]
 freqs = np.array(freqs).reshape((len(freqs), 1))
 #for every accuracy level a in A
 
 for a in A[:1]:
-    candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
+    candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
     #select the most general constraint with accuracy less than a and add it to the grammar
     constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+    constraint = constraint.item()
     violations = np.reshape(violations, (input["Input1"].shape[0], 1))
     input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
     print(input["Input1"].shape)
     assert input["Input1"].shape[1] == 2
-    fit(input, num_constraints=1, mu_scalar=0, sigma_scalar=10)
     #fit model with new constraint
+    weights = fit(input, num_constraints=1, mu_scalar=0, sigma_scalar=10)
+    probs = predict_probabilities(weights, input)
+    print(probs)
     while(constraint != None):
         G.append(constraint)
-        salad = generate_salad(c_space, G)
-        candidate_constraints = generate_candidate_constraints(possible_constraints, constraints)
-        break
+        salad = generate_salad(data[:,0], G, probs)
+        unique_salad, count = get_unique(salad)
+        freqs = [value for value in count.values()]
+        freqs = np.array(freqs).reshape((len(freqs), 1))
+        candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
         #select the most general constraint with accuracy less than a and add it to the grammar
-        constraint = find_constraint(a, salad, candidate_constraints)
+        constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+        break
 
     
