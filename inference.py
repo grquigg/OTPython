@@ -4,6 +4,7 @@ import math
 import random
 import copy
 from predict import fit, predict_probabilities
+import scipy.stats
 
 random.seed(42)
 
@@ -23,38 +24,6 @@ def recursiveRandomSample(value, cdf, pdf):
         return recursiveRandomSample(value, cdf[0:middle], pdf[0:middle])
     elif(value >= cdf[middle]):
         return recursiveRandomSample(value, cdf[middle:], pdf[middle:])
-    
-def generate_salad(consonants, grammar, probs, length=1000, max_length=3):
-    salad = []
-    if(len(grammar) == 0):
-        for i in range(length):
-            l = random.randint(1, max_length)
-            str = ""
-            for j in range(l):
-                index = random.randint(0,len(consonants)-1)
-                str += consonants[index] + " "
-            salad.append(str[:-1])
-    else:
-        print(grammar)
-        print(probs)
-        nums = [i for i in range(len(probs))]
-        cdf = generate_cdf(probs)
-        for i in range(length):
-            l = random.randint(1, max_length)
-            str = ""
-            for j in range(l):
-                index = random.random()
-                id = recursiveRandomSample(index, cdf, nums)
-                elem = consonants[id]
-                le = len(str.split(' ')) + len(elem.split(' '))
-                while(le > max_length):
-                    index = random.random()
-                    id = recursiveRandomSample(index, cdf, nums)
-                    elem = consonants[id]
-                    le = len(str.split(' ')) + len(elem.split(' '))
-                str += elem + " "
-            salad.append(str[:-1])
-    return salad
 
 def generate_combinations(constraints, i, j, k, num_features):
     for p in range(3):
@@ -88,7 +57,6 @@ def convert_vector_to_num(vector, num_features):
 def featurize_data(data, consonants_dict):
     featurized_data = {}
     for d in data:
-        print(d)
         vec = d.split(" ")
         featurized_data[d] = []
         for i in range(len(vec)):
@@ -146,6 +114,10 @@ def generate_candidate_constraints(possible_constraints, constraints, grammar, n
             constraint_list[constraint] = vec
     return constraint_list
 
+#cans - list of keys of the actual constraints themselves
+#candidates - the dictionary of various constraints we are trying to get violations for
+#features - a dictionary where the keys are unique forms in the salad and the values are the vectorized features for each form
+#salad - the list of sampled forms from the grammar
 def generate_constraint_violations(cans, candidates, features, salad):
     violations = np.zeros((len(salad), len(cans)))
     for j in range(len(cans)):
@@ -194,21 +166,63 @@ def find_constraint(a, salad, candidates, consonants, freqs):
     input = np.concatenate((freqs, violations), axis=1)
     feed = {"Input1": input}
     weights = np.ones((1000,))
-    probs = predict_probabilities(weights, feed)
+    total_data = np.sum(data[:,1])
+    probs = predict_probabilities(weights, feed)*total_data
     expected_totals = np.dot(probs, violations)
     featurized_data = featurize_data(data[:,0], consonants_dict)
     observed_violations = generate_constraint_violations(cans, candidates, featurized_data, data[:,0])
-    observed_totals = np.dot(data[:,1]/sum(data[:,1])*1000, observed_violations)
+    observed_totals = np.dot(data[:,1], observed_violations)
     #determine the best constraints given the set of conditions
-    best_accuracy = a
-    max_diff = 0
-    accuracy = observed_totals - expected_totals
+    diff = observed_totals - expected_totals
     print("Results")
-    print(np.min(accuracy))
-    constraint = np.argmin(accuracy)
+    constraint = np.argmin(diff)
     print(constraint)
+    print(np.min(diff))
+    print("Actual constraint value")
+    print(candidates[cans[constraint]])
+    print(cans[constraint])
     print(observed_violations[:,constraint])
-    return constraint, observed_violations[:,constraint]
+    return cans[constraint], observed_violations[:,constraint]
+
+def generate_salad(consonants, grammar, weights, probs, constraints=None, length=1000, max_length=3, consonants_dict=consonants_dict):
+    salad = []
+    if(len(grammar) == 0):
+        for i in range(length):
+            l = random.randint(1, max_length)
+            str = ""
+            for j in range(l):
+                index = random.randint(0,len(consonants)-1)
+                str += consonants[index] + " "
+            salad.append(str[:-1])
+    else:
+        current_grammar = {}
+        for j in range(len(grammar)):
+            current_grammar[grammar[j]] = constraints[grammar[j]]
+        graph = {}
+        for i in range(length):
+            l = random.randint(1, max_length)
+            str = ""
+            for j in range(l):
+                #create candidates
+                candidate_vecs = []
+                for cons in consonants:
+                    can = str + " " + cons
+                    candidate_vecs.append(can[1:])
+                #get_vectors
+                vectors = featurize_data(candidate_vecs, consonants_dict)
+                violations = generate_constraint_violations(grammar, current_grammar, vectors, candidate_vecs)
+                exp = np.exp(-violations)
+                probs = exp / np.sum(exp)
+                cdf = generate_cdf(probs[:,0])
+                index = random.random()
+                val = recursiveRandomSample(index, cdf, consonants)
+                if(l == 0):
+                    str = val
+                else:
+                    str += " " + val
+            salad.append(str[1:])
+        #dynamically generate probs for each constraint
+    return salad
 
 def get_unique(salad):
     unique_salad = []
@@ -226,36 +240,50 @@ A = [0.001, 0.01, 0.1, 0.2, 0.3] #accuracy schedule
 tableau = np.array(data[:,1]).reshape((len(data), 1))
 input = {"Input1": tableau}
 probs = np.full_like((len(data), 1), 1/len(data))
+total = np.sum(data[:,1])
+weights = []
 G = []
-salad = generate_salad(c_space, G, probs)
-# print(salad)
+rules = {}
+salad = generate_salad(c_space, G, weights, probs)
+print("Salad")
+print(salad[0:10])
 unique_salad, count = get_unique(salad)
 freqs = [value for value in count.values()]
 freqs = np.array(freqs).reshape((len(freqs), 1))
 #for every accuracy level a in A
-
 for a in A[:1]:
     candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
     #select the most general constraint with accuracy less than a and add it to the grammar
     constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
-    constraint = constraint.item()
     violations = np.reshape(violations, (input["Input1"].shape[0], 1))
     input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
     print(input["Input1"].shape)
     assert input["Input1"].shape[1] == 2
     #fit model with new constraint
     weights = fit(input, num_constraints=1, mu_scalar=0, sigma_scalar=10)
+    print("weights")
+    print(weights)
     probs = predict_probabilities(weights, input)
     print(probs)
     while(constraint != None):
         G.append(constraint)
-        salad = generate_salad(data[:,0], G, probs)
+        salad = generate_salad(c_space, G, weights, probs, constraints=candidate_constraints, consonants_dict=consonants_dict)
+        print("Salad")
+        print(salad[0:10])
         unique_salad, count = get_unique(salad)
         freqs = [value for value in count.values()]
         freqs = np.array(freqs).reshape((len(freqs), 1))
         candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
         #select the most general constraint with accuracy less than a and add it to the grammar
         constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+        violations = np.reshape(violations, (input["Input1"].shape[0], 1))
+        input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
+        #fit model with new constraint
+        weights = np.concatenate((weights, [1]))
+        weights = fit(input, constraint_weights=list(weights), mu_scalar=0, sigma_scalar=10)
+        print(weights)
+        probs = predict_probabilities(weights, input)
+        print(probs)
         break
 
-    
+        
