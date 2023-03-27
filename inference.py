@@ -71,6 +71,7 @@ def featurize_data(data, consonants_dict):
 #runs in approximately O(n^3) time, where n is the number of features
 #obviously any speed up possible is going to result in improved performance
 
+#TO-DO: need to revise 
 def generate_candidate_constraints(possible_constraints, constraints, grammar, num=1000, max_length=3):
     constraint_list = {}
     while(len(constraint_list.keys()) < num): #this is sampling WITHOUT replacement
@@ -146,26 +147,29 @@ def find_constraint(a, salad, candidates, consonants, freqs):
     print(violations.shape)
     input = np.concatenate((freqs, violations), axis=1)
     feed = {"Input1": input}
-    weights = np.ones((1000,))
+    weights = np.ones((len(consonants),))
     total_data = np.sum(data[:,1])
-    probs = predict_probabilities(weights, feed)*total_data
+    probs = predict_probabilities(weights, feed)
     expected_totals = np.dot(probs, violations)
     featurized_data = featurize_data(data[:,0], consonants_dict)
     observed_violations = generate_constraint_violations(cans, candidates, featurized_data, data[:,0])
-    observed_totals = np.dot(data[:,1], observed_violations)
+    observed_totals = np.dot(data[:,1]/total_data, observed_violations)
+    print(expected_totals[0:10])
+    print(observed_totals[0:10])
     #determine the best constraints given the set of conditions
     best_accuracy = 1000
     constraint = 0
     for i in range(len(observed_totals)):
-        if(observed_totals[i] > expected_totals[i]):
+        if(observed_totals[i] > expected_totals[i] or expected_totals[i] == 0):
             continue
-        probs = (observed_totals[i] + 0.5) / (expected_totals[i] + 1)
+        prob = (observed_totals[i] + 0.5) / (expected_totals[i] + 1)
         t_score = scipy.stats.t.ppf(0.975, df=observed_totals[i]-1)
-        other = probs * (1 - probs) / expected_totals[i]
-        accuracy = probs - t_score * math.sqrt(other)
+        other = prob * (1 - prob) / expected_totals[i]
+        accuracy = prob - t_score * math.sqrt(other)
         if(accuracy < best_accuracy):
             best_accuracy = accuracy
             constraint = i
+            print("Best accuracy: {}".format(best_accuracy))
     print("Accuracy")
     print(constraint)
     print(best_accuracy)
@@ -173,7 +177,7 @@ def find_constraint(a, salad, candidates, consonants, freqs):
     print(candidates[cans[constraint]])
     print(cans[constraint])
     print(observed_violations[:,constraint])
-    return best_accuracy, cans[constraint], observed_violations[:,constraint]
+    return best_accuracy, (cans[constraint], candidates[cans[constraint]]), observed_violations[:,constraint]
 
 def generate_salad(consonants, grammar, weights, probs, constraints=None, length=1000, max_length=3, consonants_dict=None):
     salad = []
@@ -186,8 +190,7 @@ def generate_salad(consonants, grammar, weights, probs, constraints=None, length
                 str += consonants[index] + " "
             salad.append(str[:-1])
     else:
-        current_grammar = rules
-        graph = {}
+        current_grammar = constraints
         for i in range(length):
             l = random.randint(1, max_length)
             str = ""
@@ -223,18 +226,37 @@ def get_unique(salad):
         count[word] += 1
     return unique_salad, count
 
+def generate_constraints(positive, negative, num_features):
+    constraint_map = {}
+    for i in range(len(positive)):
+        el = positive[i]
+        if(el == 1):
+            array = [0 for _ in range(len(positive))]
+            array[i] = 1
+            num_hash = convert_vector_to_num(array, num_features)
+            constraint_map[num_hash] = array
+    for j in range(len(negative)):
+        el = negative[j]
+        if(el == 1):
+            array = [0 for _ in range(len(negative))]
+            array[j] = 2
+            num_hash = convert_vector_to_num(array, num_features)
+            constraint_map[num_hash] = array
+    return constraint_map
+
 if __name__ == "__main__":
     consonants_df = pd.read_csv("EnglishFeatures.txt", delimiter='\t') #this is the **feature** dataset
     consonant_headers = consonants_df.columns
     dataset = []
-    data_df = pd.read_csv("EnglishLearningData.txt", header=None, delimiter='\t')
-    data = data_df.to_numpy()
+    data_df = pd.read_csv("EnglishLearningData.txt", header=None, delimiter='\t') #load English data from data_df
+    
+    #convert pandas dataframes to numpy
+    data = data_df.to_numpy() 
     consonants = consonants_df.to_numpy()
+    #convert list of consonants to list
     c_space = consonants[:,0].tolist()
-    likelihoods = [entry[1] for entry in data]
-    likelihoods = sorted(likelihoods, reverse=True)
-    counts = likelihoods.copy()
-    likelihoods = likelihoods / np.sum(likelihoods)
+
+    #convert the numpy array of English headers to integers
     for i in range(consonants.shape[0]):
         for j in range(consonants.shape[1]):
             if(consonants[i][j] == "-"):
@@ -243,37 +265,58 @@ if __name__ == "__main__":
                 consonants[i][j] = 1
             elif(consonants[i][j] == "0"):
                 consonants[i][j] = 0
-    #map consonants
+    matrix = consonants[:,1:]
+    ones = np.equal(matrix, 1).astype(int)
+    ones = np.sum(ones, axis=0)
+    ones = np.ma.masked_greater(ones, 0)
+    ones = np.ma.filled(ones, fill_value=1)
+    twice = np.equal(matrix, 2).astype(int)
+    twice = np.sum(twice, axis=0)
+    twice = np.ma.masked_greater(twice, 0)
+    twice = np.ma.filled(twice, fill_value=1)
+    #map consonants to their associated features
     consonants_dict = {}
     for consonant in consonants:
         consonants_dict[consonant[0]] = consonant[1:]
+
     NUM_FEATURES = len(consonant_headers)-1
-    constraints =  generate_constraint_dict(NUM_FEATURES)
+    constraints = generate_constraints(ones, twice, NUM_FEATURES)
+    #generate mappings between basic constraints and their associated vectors
+    #firstly we generate a list of features that are "active"
+    #get the list of keys of possible constraints
     possible_constraints = [key for key in constraints.keys()]
-    A = [0.001, 0.01, 0.1, 0.2, 0.3] #accuracy schedule
+    A = [0.001, 0.01] #accuracy schedule
     #algorithm as outlined in Hayes and Wilson 2008
-    #start with an empty grammar G
     tableau = np.array(data[:,1]).reshape((len(data), 1))
     input = {"Input1": tableau}
-    probs = np.full_like(data[:,1], 1/data.shape[0])
+    y_actual = np.full_like(data[:,1], 1/data.shape[0])
     total = np.sum(data[:,1])
-    kl_init = kl(data[:,1]/total, probs)
+    kl_init = kl(data[:,1]/total, y_actual)
     print("Current KL divergence is {}".format(kl_init))
     weights = []
+    #start with an empty grammar G
     G = []
     rules = {}
-    salad = generate_salad(c_space, G, weights, probs)
+    #generate salad based on the current grammar
+    salad = generate_salad(c_space, G, weights, y_actual, length=2000)
     print("Salad")
     print(salad[0:10])
     unique_salad, count = get_unique(salad)
+    sorted_count = sorted(count.items(), key=lambda x: x[1], reverse=True)
+    #look at sorted list of forms
+
+    #get columns for frequencies
     freqs = [value for value in count.values()]
     freqs = np.array(freqs).reshape((len(freqs), 1))
+
     #for every accuracy level a in A
     for a in A:
-        candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
+        candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G, num=2000)
         #select the most general constraint with accuracy less than a and add it to the grammar
-        accuracy, constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+        accuracy, (constraint, constraint_vector), violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
+        raise NotImplementedError()
         if(accuracy < a):
+            rules[constraint] = candidate_constraints[constraint]
             violations = np.reshape(violations, (input["Input1"].shape[0], 1))
             input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
             #fit model with new constraint
@@ -283,9 +326,11 @@ if __name__ == "__main__":
             print(weights)
             probs = predict_probabilities(weights, input)
             print(probs)
+            raise NotImplementedError()
             while(constraint != None):
                 G.append(constraint)
                 salad = generate_salad(c_space, G, weights, probs, constraints=rules, consonants_dict=consonants_dict)
+                candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
                 print("Salad")
                 print(salad[0:10])
                 unique_salad, count = get_unique(salad)
@@ -294,16 +339,17 @@ if __name__ == "__main__":
                 candidate_constraints = generate_candidate_constraints(possible_constraints, constraints, G)
                 #select the most general constraint with accuracy less than a and add it to the grammar
                 accuracy, constraint, violations = find_constraint(a, unique_salad, candidate_constraints, consonants_dict, freqs)
-                print("Returned constraint")
-                violations = np.reshape(violations, (input["Input1"].shape[0], 1))
-                input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
-                #fit model with new constraint
-                weights = np.concatenate((weights, [1]))
-                weights = fit(input, constraint_weights=list(weights), mu_scalar=0, sigma_scalar=10)
-                print(weights)
-                rules[constraint] = candidate_constraints[constraint]
-                probs = predict_probabilities(weights, input)
-                print(probs)
+                if(accuracy < a):
+                    print("Returned constraint")
+                    violations = np.reshape(violations, (input["Input1"].shape[0], 1))
+                    input["Input1"] = np.concatenate((input["Input1"], violations), axis=1)
+                    #fit model with new constraint
+                    weights = np.concatenate((weights, [1]))
+                    weights = fit(input, constraint_weights=list(weights), mu_scalar=0, sigma_scalar=10)
+                    print(weights)
+                    rules[constraint] = candidate_constraints[constraint]
+                    probs = predict_probabilities(weights, input)
+                    print(probs)
         else:
             print("No constraint for current accuracy")
             continue
